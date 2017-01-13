@@ -34,6 +34,7 @@ DEBUG = 0
 USE_PROFILER =
 
 # the additional link flags you want to add
+# flag compiler with centos7+ -L/usr/lib64/atlas
 ADD_LDFLAGS =
 
 # the additional compile flags you want to add
