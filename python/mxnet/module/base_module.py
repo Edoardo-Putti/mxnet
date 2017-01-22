@@ -3,6 +3,7 @@
 
 import logging
 import time
+from hypergrad_test import test_lr
 
 from .. import metric
 from .. import ndarray
@@ -319,7 +320,7 @@ class BaseModule(object):
             eval_batch_end_callback=None, initializer=Uniform(0.01),
             arg_params=None, aux_params=None, allow_missing=False,
             force_rebind=False, force_init=False, begin_epoch=0, num_epoch=None,
-            validation_metric=None, monitor=None):
+            validation_metric=None, monitor=None, val_label=None, val_image=None):
         """Train the module parameters.
 
         Parameters
@@ -398,9 +399,18 @@ class BaseModule(object):
         if not isinstance(eval_metric, metric.EvalMetric):
             eval_metric = metric.create(eval_metric)
 
+        arg_shapes = self.symbol.infer_shape(**dict([('data', self.data_shapes[0][1])]))
+        init_parameters = self._arg_params
+        w_parser, pred_fun, loss_fun, frac_err, layer_num = test_lr.make_nn(arg_shapes)
+        init_parameters = test_lr.mxnet_weight2autograd_wieght(init_parameters, w_parser, layer_num)
+        alpha = [0.5]
+
         ################################################################################
         # training loop
         ################################################################################
+        transform = 0.5
+        first_nbatch = False
+        lr_grad = 0.0
         for epoch in range(begin_epoch, num_epoch):
             tic = time.time()
             eval_metric.reset()
@@ -408,7 +418,10 @@ class BaseModule(object):
                 if monitor is not None:
                     monitor.tic()
                 self.forward_backward(data_batch)
-                self.update()
+                if first_nbatch:
+                    self.update(lr_grad)
+                else:
+                    self.update()
                 self.update_metric(eval_metric, data_batch.label)
 
                 if monitor is not None:
@@ -421,6 +434,7 @@ class BaseModule(object):
                     for callback in _as_list(batch_end_callback):
                         callback(batch_end_params)
 
+                first_nbatch = False
             # one epoch of training is finished
             for name, val in eval_metric.get_name_value():
                 self.logger.info('Epoch[%d] Train-%s=%f', epoch, name, val)
@@ -434,6 +448,16 @@ class BaseModule(object):
             if epoch_end_callback is not None:
                 for callback in _as_list(epoch_end_callback):
                     callback(epoch, self.symbol, arg_params, aux_params)
+
+            #agw = test_lr.mxnet_weight2autograd_wieght(arg_params, w_parser, layer_num)
+            #loss = loss_fun(agw, val_image, val_label)
+            #error = frac_err(agw, val_image, val_label)
+            #grad = test_lr.hypergrad(transform, arg_params, w_parser, val_image, val_label, layer_num, loss_fun, init_parameters)
+            #sgd(grad(primal_loss), transform, agw, alpha, 0.1, 1000, w_init)
+            #sgd(grad(primal_loss), transform, agw, alpha, 0.1, 1000, w_init)
+            lr_grad = test_lr.grad_lr(arg_params, w_parser, val_image, val_label, layer_num, loss_fun, init_parameters, 0.5)
+            first_nbatch = True
+
 
             #----------------------------------------
             # evaluation on validation set
@@ -712,7 +736,7 @@ class BaseModule(object):
         """
         raise NotImplementedError()
 
-    def update(self):
+    def update(self, lr_grad=None):
         """Update parameters according to the installed optimizer and the gradients computed
         in the previous forward-backward batch.
 

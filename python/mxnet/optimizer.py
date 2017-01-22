@@ -6,7 +6,6 @@ from .ndarray import NDArray, zeros, clip, sqrt
 from .ndarray import sgd_update, sgd_mom_update, adam_update
 from .random import normal
 
-
 class Optimizer(object):
     """Base class of all optimizers."""
     opt_registry = {}
@@ -261,6 +260,16 @@ class SGD(Optimizer):
         """
         assert(isinstance(weight, NDArray))
         assert(isinstance(grad, NDArray))
+
+        if grad.shape[0] == 2 and grad.asnumpy()[0] == 10000:
+            d_lr = grad.asnumpy()[1] * 0.08
+            if self.lr - d_lr < 0:
+                #logging.info("---------------------d_lr %s, self.lr %s", d_lr, self.lr)
+                return
+            self.lr = self.lr - d_lr
+            #logging.info("---------------------d_lr %s, self.lr %s", d_lr, self.lr)
+            return
+
         lr = self._get_lr(index)
         wd = self._get_wd(index)
         self._update_count(index)

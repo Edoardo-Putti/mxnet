@@ -464,7 +464,7 @@ class Module(BaseModule):
         assert self.binded and self.params_initialized
         self._exec_group.backward(out_grads=out_grads)
 
-    def update(self):
+    def update(self, lr_grad=None):
         """Update parameters according to the installed optimizer and the gradients computed
         in the previous forward-backward batch.
         """
@@ -474,7 +474,7 @@ class Module(BaseModule):
         if self._update_on_kvstore:
             _update_params_on_kvstore(self._exec_group.param_arrays,
                                       self._exec_group.grad_arrays,
-                                      self._kvstore)
+                                      self._kvstore, lr_grad)
         else:
             _update_params(self._exec_group.param_arrays,
                            self._exec_group.grad_arrays,

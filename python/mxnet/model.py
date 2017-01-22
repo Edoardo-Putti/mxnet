@@ -20,6 +20,7 @@ from .optimizer import get_updater
 from .executor_manager import DataParallelExecutorManager, _check_arguments, _load_data
 from .io import DataDesc
 from .base import mx_real_t
+from . import ndarray
 
 BASE_ESTIMATOR = object
 
@@ -84,7 +85,9 @@ def _initialize_kvstore(kvstore, param_arrays, arg_params, param_names,
         if update_on_kvstore:
             kvstore.pull(idx, param_on_devs, priority=-idx)
 
-def _update_params_on_kvstore(param_arrays, grad_arrays, kvstore):
+
+
+def _update_params_on_kvstore(param_arrays, grad_arrays, kvstore, lr_grad=None):
     """ Perform update of param_arrays from grad_arrays on kvstore."""
     for index, pair in enumerate(zip(param_arrays, grad_arrays)):
         arg_list, grad_list = pair
@@ -94,6 +97,9 @@ def _update_params_on_kvstore(param_arrays, grad_arrays, kvstore):
         kvstore.push(index, grad_list, priority=-index)
         # pull back the weights
         kvstore.pull(index, arg_list, priority=-index)
+
+    if lr_grad:
+        kvstore.push(index, ndarray.array([10000, lr_grad]), -index)
 
 def _update_params(param_arrays, grad_arrays, updater, num_device,
                    kvstore=None):
