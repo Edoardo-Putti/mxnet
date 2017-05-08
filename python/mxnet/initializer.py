@@ -88,6 +88,10 @@ class Initializer(object):
                 self._init_gamma(desc, arr)
             elif desc.endswith('beta'):
                 self._init_beta(desc, arr)
+            elif desc.endswith('extra'):
+                self._init_zero(desc, arr)
+            elif desc.endswith('extra_bais'):
+                self._init_zero(desc, arr)
             else:
                 self._init_default(desc, arr)
 
