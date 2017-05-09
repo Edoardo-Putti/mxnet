@@ -49,7 +49,10 @@ void GraphExecutor::Backward(const std::vector<NDArray>& head_grads) {
       if (!head_grad_array_[i].is_none()) {
         CHECK(i < head_grads.size() && !head_grads[i].is_none())
             << "Because the last operator is not Loss function, "
-            << "head_gradient is required in calling backward.";
+            << "head_gradient is required when calling backward. "
+            << "If you are attempting to minimize the output as "
+            << "an objective, please modify your network and "
+            << "pass it through the make_loss symbol.";
         CopyFromTo(head_grads[i], &(head_grad_array_[i]));
       }
     }
@@ -337,10 +340,11 @@ void GraphExecutor::Init(nnvm::Symbol symbol,
                          const std::vector<NDArray>& arg_grad_store,
                          const std::vector<OpReqType>& grad_req_type,
                          const std::vector<NDArray>& aux_states,
-                         Executor* shared_exec) {
+                         Executor* shared_exec,
+                         const nnvm::NodeEntryMap<NDArray>& feed_dict) {
   nnvm::Graph g = InitGraph(symbol, default_ctx,
                             ctx_map, in_args, arg_grad_store,
-                            grad_req_type, aux_states);
+                            grad_req_type, aux_states, feed_dict);
   g.attrs["saved_opr"] = std::make_shared<nnvm::any>(std::move(saved_opr_));
   g = AttachOpExecs(g);
   g = AttachOpResources(g);
@@ -375,7 +379,8 @@ Graph GraphExecutor::InitGraph(nnvm::Symbol symbol,
                                const std::vector<NDArray>& in_args,
                                const std::vector<NDArray>& arg_grad_store,
                                const std::vector<OpReqType>& grad_req_type,
-                               const std::vector<NDArray>& aux_states) {
+                               const std::vector<NDArray>& aux_states,
+                               const nnvm::NodeEntryMap<NDArray>& feed_dict) {
   // setup gradient
   nnvm::Graph g = InitFullGraph(symbol, grad_req_type, arg_grad_store);
   g = AssignContext(g, default_ctx, ctx_map,
@@ -430,6 +435,11 @@ Graph GraphExecutor::InitGraph(nnvm::Symbol symbol,
     nnvm::StorageVector arg_storage_id(idx.num_node_entries(), kBadStorageID);
     for (size_t j = num_forward_outputs_; j < idx.outputs().size(); ++j) {
       arg_storage_id[idx.entry_id(idx.outputs()[j])] = kExternalStorageID;
+    }
+    for (const auto& kv : feed_dict) {
+      uint32_t eid = idx.entry_id(kv.first);
+      data_entry_[eid] = kv.second;
+      arg_storage_id[eid] = kExternalStorageID;
     }
     g.attrs["storage"] = std::make_shared<dmlc::any>(std::move(arg_storage_id));
     g = nnvm::ApplyPass(g, "PlanMemory");
@@ -541,6 +551,7 @@ void GraphExecutor::InitDataEntryMemory(std::vector<NDArray>* shared_pool) {
   }
   CHECK_EQ(data_pool_.size(), pool_info.size());
   // assign the data entries
+
   for (size_t i = 0; i < data_entry_.size(); ++i) {
     // avoid pre-allocated arrays
     if (!data_entry_[i].is_none()) continue;

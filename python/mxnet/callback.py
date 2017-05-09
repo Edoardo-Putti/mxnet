@@ -87,22 +87,35 @@ def log_train_metric(period, auto_reset=False):
 
 
 class Speedometer(object):
-    """Calculate and log training speed periodically.
+    """Logs training speed and evaluation metrics periodically.
 
     Parameters
     ----------
     batch_size: int
-        batch_size of data.
+        Batch size of data.
     frequent: int
-        How many batches between calculations.
-        Defaults to calculating & logging every 50 batches.
+        Specifies how frequently training speed and evaluation metrics
+        must be logged. Default behavior is to log once every 50 batches.
+    auto_reset : bool
+        Reset the evaluation metrics after each log.
+
+    Example:
+    --------
+    >>> # Print training speed and evaluation metrics every ten batches. Batch size is one.
+    ...
+    >>> module.fit(iterator, num_epoch=n_epoch,
+    ... batch_end_callback=mx.callback.Speedometer(1, 10))
+    Epoch[0] Batch [10] Speed: 1910.41 samples/sec  Train-accuracy=0.200000
+    Epoch[0] Batch [20] Speed: 1764.83 samples/sec  Train-accuracy=0.400000
+    Epoch[0] Batch [30] Speed: 1740.59 samples/sec  Train-accuracy=0.500000
     """
-    def __init__(self, batch_size, frequent=50):
+    def __init__(self, batch_size, frequent=50, auto_reset=True):
         self.batch_size = batch_size
         self.frequent = frequent
         self.init = False
         self.tic = 0
         self.last_count = 0
+        self.auto_reset = auto_reset
 
     def __call__(self, param):
         """Callback to Show speed."""
@@ -116,7 +129,8 @@ class Speedometer(object):
                 speed = self.frequent * self.batch_size / (time.time() - self.tic)
                 if param.eval_metric is not None:
                     name_value = param.eval_metric.get_name_value()
-                    param.eval_metric.reset()
+                    if self.auto_reset:
+                        param.eval_metric.reset()
                     for name, value in name_value:
                         logging.info('Epoch[%d] Batch [%d]\tSpeed: %.2f samples/sec\tTrain-%s=%f',
                                      param.epoch, count, speed, name, value)

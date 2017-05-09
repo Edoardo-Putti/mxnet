@@ -877,7 +877,8 @@ _init_ndarray_module(NDArray, "mxnet")
 def onehot_encode(indices, out):
     """One-hot encoding indices into matrix out.
 
-    Deprecated, use ``one_hot`` instead.
+    .. note:: `onehot_encode` is deprecated. Use `one_hot` instead.
+
     """
     # pylint: disable= no-member, protected-access
     return _internal._onehot_encode(indices, out, out=out)
@@ -953,7 +954,7 @@ def ones(shape, ctx=None, dtype=mx_real_t):
 
     Parameters
     ----------
-    shape : int or tuple of int
+    shape : int or tuple of int or list of int
         The shape of the empty array.
     ctx : Context, optional
         An optional device context.
@@ -2018,7 +2019,7 @@ def negative(arr):
     return multiply(arr, -1.0)
 
 def load(fname):
-    """Load array from file.
+    """Loads an array from file.
 
     See more details in ``save``.
 
@@ -2052,7 +2053,7 @@ def load(fname):
 
 
 def save(fname, data):
-    """Save a list of arrays of a str->array dict into file.
+    """Saves a list of arrays or a dict of str->array to file.
 
     Examples of filenames:
 
@@ -2065,7 +2066,7 @@ def save(fname, data):
     fname : str
         The filename.
     data : list of ``NDArray` or dict of str to ``NDArray``
-        The data for saving.
+        The data to save.
 
     Examples
     --------
