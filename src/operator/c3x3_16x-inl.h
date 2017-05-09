@@ -95,20 +95,6 @@ class c3x3_16Op : public Operator {
       << "Only support NCW, NCHW and NCDHW layout";
   }
 
-  void debug_shape(const std::vector<TBlob> &data){
-
-    for (int i = 0; i < data.size(); i++) {
-        TBlob tb = data[i];
-        auto ndim = tb.shape_.ndim();
-        LOG(INFO) << "#########" << ndim;
-        for (int j = 0; j < ndim; j++) {
-            LOG(INFO) << "^^^^^^^" << tb.shape_.data_stack_[j];
-        }
-    }
-
-  }
-
-
 
   void expand(const std::vector<TBlob> &data, const OpContext &ctx) {
 
@@ -146,12 +132,8 @@ class c3x3_16Op : public Operator {
     for (int i = 0; i < weight_origin.size(0); i++) {
     	for (int j = 0; j < weight_origin.size(1); j++) {
            for(int k = 0; k < weight_origin.size(2); k++) {
-			   //LOG(INFO) << "i " << i << " j " << j << " k " << k;
-
                for (int w = i * expand_num, t = k; w < i * expand_num + expand_num; w += 2, t++) {
-			   	  //LOG(INFO) << "w " << w << " j " << j << " t " << t << "expand_num" << expand_num;
                   weight_expand[w][j][t] = weight_origin[i][j][k];
-
 				  if (t == 3 || t == 4 || t == 5) {
 			     	w = w - 1;
 					continue;
@@ -218,7 +200,6 @@ class c3x3_16Op : public Operator {
 
     for (int i = 0; i < bias_origin.size(0); i++) {
         for (int j = i * expand_num ; j < expand_num + i * expand_num; j++) {
-            //LOG(INFO) <<"expand bias" << j;
             bias_expand[j] = bias_origin[i];
         }
     }
@@ -244,14 +225,7 @@ class c3x3_16Op : public Operator {
     CHECK_EQ(out_data.size(), 1U);
     CHECK_EQ(req[c3x3_16::kOut], kWriteTo);
 
-    //LOG(INFO) << "in_data";
-    //debug_shape(in_data);
-    //LOG(INFO) << "out_data";
-    //debug_shape(out_data);
-
-	//LOG(INFO) << "----------before expand";
 	expand(in_data, ctx);
-	//LOG(INFO) << "----------after expand";
 
     LayerSetUp(in_data[c3x3_16::kData].shape_, out_data[c3x3_16::kOut].shape_);
     Stream<xpu>* s = ctx.get_stream<xpu>();
@@ -280,14 +254,11 @@ class c3x3_16Op : public Operator {
     Tensor<xpu, 3, DType> weight_3d = in_data[c3x3_16::kExtra].get_with_shape<xpu, 3, DType>(
       Shape3(group_, M, K), s);
 
-    //LOG(INFO) <<"weight 3d filters" << weight_3d.shape_[1];
-
     Tensor<xpu, 3, DType> col_buffer_3d = col_buffer.get_with_shape<xpu, 3, DType>(
       Shape3(group_, K, N), s);
     Tensor<xpu, 4, DType> output_4d = out_data[c3x3_16::kOut].get_with_shape<xpu, 4, DType>(
       Shape4(num_, group_, M, N), s);
 
-	//LOG(INFO) << "befor dot ";
     for (index_t n = 0; n < num_; ++n) {
       // transform image to col_buffer in order to use gemm
       im2col(s, in_data[c3x3_16::kData].dptr<DType>()+n*input_dim_, in_data[c3x3_16::kData].shape_,
@@ -298,7 +269,6 @@ class c3x3_16Op : public Operator {
         ASSIGN_DISPATCH(output_3d[g], req[c3x3_16::kOut], dot(weight_3d[g], col_buffer_3d[g]));
       }
     }
-	//LOG(INFO) << "after dot ";
     if (bias_term_) {
       Tensor<xpu, 1, DType> bias = in_data[c3x3_16::kExtra_Bias].get<xpu, 1, DType>(s);
       Tensor<xpu, 3, DType> output_3d = out_data[c3x3_16::kOut].get_with_shape<xpu, 3, DType>(
@@ -306,7 +276,6 @@ class c3x3_16Op : public Operator {
       // has bias term, broadcast it to the same shape of output_3d in channel dim
       output_3d += mshadow::expr::broadcast<1>(bias, output_3d.shape_);
     }
-	//LOG(INFO) << "return from forward ";
   }
 
   void shrink(const std::vector<TBlob> &data, const OpContext &ctx) {
@@ -321,7 +290,6 @@ class c3x3_16Op : public Operator {
 
     Stream<xpu>* s = ctx.get_stream<xpu>();
 
-    //kernel_size = oh * ow;
     Tensor<xpu, 3, DType> x_weight_origin = data[c3x3_16::kWeight].get_with_shape<xpu, 3, DType>(
     						Shape3(on, oc, oh * ow), s);
 
@@ -335,23 +303,18 @@ class c3x3_16Op : public Operator {
     Tensor<xpu, 3, DType> x_weight_expand = data[c3x3_16::kExtra].get_with_shape<xpu, 3, DType>(
     						Shape3(en, ec, eh * ew), s);
 
-    //LOG(INFO) << "shark------------------------before new";
-    //LOG(INFO) << "on " << on << " oc " << oc << " oh * ow " << oh * ow;
-    //LOG(INFO) << "en " << en << " ec " << ec << " oh * ow " << eh * ew;
     Tensor<cpu, 3, DType> weight_origin = NewTensor<cpu, DType>(Shape3(on, oc, oh * ow), 0.0f);
     Tensor<cpu, 3, DType> weight_expand = NewTensor<cpu, DType>(Shape3(en, ec, eh * ew), 0.0f);
 
     Copy(weight_origin, x_weight_origin, s);
     Copy(weight_expand, x_weight_expand, s);
 
-    //LOG(INFO) << "shark------------------------after copy";
-
     int expand_num = en / on;
     for (int i = 0; i < weight_origin.size(0); i++) {
     	for (int j = 0; j < weight_origin.size(1); j++) {
            for(int k = 0; k < weight_origin.size(2); k++) {
                for (int w = i * expand_num, t = k; w < i * expand_num + expand_num; w += 2, t++) {
-                  //weight_expand[w][j][t] = weight_origin[i][j][k];
+
                   weight_origin[i][j][k] = weight_expand[w][j][t];
 
 				  if (t == 3 || t == 4 || t == 5) {
@@ -420,8 +383,6 @@ class c3x3_16Op : public Operator {
     for (int i = 0; i < bias_origin.size(0); i++) {
         temp_sum = 0;
         for (int j = i * expand_num ; j < expand_num + i * expand_num; j++) {
-            //LOG(INFO) <<"expand bias" << j;
-            //bias_expand[j] = bias_origin[i];
             temp_sum += bias_expand[j];
         }
         bias_origin[i] = temp_sum / expand_num;
@@ -449,15 +410,6 @@ class c3x3_16Op : public Operator {
     CHECK_EQ(req.size(), expected);
     CHECK_EQ(in_data[c3x3_16::kWeight].CheckContiguous(), true);
 
-    //LOG(INFO) << "---------------------------------in backward";
-    //LOG(INFO) << "in_data";
-    //debug_shape(in_data);
-    //LOG(INFO) << "out_data";
-    //debug_shape(out_data);
-    //LOG(INFO) << "in_grad";
-    //debug_shape(in_grad);
-    //LOG(INFO) << "out_grad";
-    //debug_shape(out_grad);
 
     LayerSetUp(in_grad[c3x3_16::kData].shape_, out_grad[c3x3_16::kOut].shape_);
     Stream<xpu> *s = ctx.get_stream<xpu>();
@@ -465,14 +417,10 @@ class c3x3_16Op : public Operator {
     Tensor<xpu, 1, DType> workspace = ctx.requested[c3x3_16::kTempSpace]
       .get_space_typed<xpu, 1, DType>(Shape1(col_buffer_size_), s);
     // calculate the shape of col_buffer
-	//LOG(INFO) << "col_buffer_shape";
     TShape col_buffer_shape(num_spatial_axes_ + 1);
-	//LOG(INFO) << "##########" << col_buffer_shape.ndim();
-	//LOG(INFO) << "^^^^^^^" << num_spatial_axes_ + 1;
     col_buffer_shape[0] = conv_in_channels_ * param_.kernel.Size();
     for (index_t i = 1; i < col_buffer_shape.ndim(); ++i) {
       col_buffer_shape[i] = out_grad[c3x3_16::kData].shape_[i+1];
-	  //LOG(INFO) << "^^^^^^^" << out_grad[c3x3_16::kData].shape_[i+1];
     }
     // create a column buffer using workspace and col_buffer_shape
     TBlob col_buffer(workspace.dptr_, col_buffer_shape, xpu::kDevMask, DataType<DType>::kFlag);
@@ -568,20 +516,6 @@ class c3x3_16Op : public Operator {
     num_kernels_im2col_ = conv_in_channels_ * conv_out_spatial_dim_;
     num_kernels_col2im_ = input_dim_;
 
-    //LOG(INFO) << "conv_out_channels_ " << conv_out_channels_;
-    //LOG(INFO) << "group_ " << group_;
-    //LOG(INFO) << "conv_in_channels_ " << conv_in_channels_;
-    //LOG(INFO) << "kernel_size " << param_.kernel.Size();
-    //LOG(INFO) << "kernel_dim_ " << kernel_dim_;
-    //LOG(INFO) << "weight_offset_ " << weight_offset_;
-    //LOG(INFO) << "conv_out_spatial_dim_ " << conv_out_spatial_dim_;
-    //LOG(INFO) << "col_offset_ " << col_offset_;
-    //LOG(INFO) << "output_offset_ " << output_offset_;
-    //LOG(INFO) << "col_buffer_size_" << col_buffer_size_;
-    //LOG(INFO) << "imput_dim_ " << input_dim_;
-    //LOG(INFO) << "output_dim_ " << output_dim_;
-    //LOG(INFO) << "num_kernels_im2col_ " << num_kernels_im2col_;
-    //LOG(INFO) << "num_kernels_col2im_ " << num_kernels_col2im_;
   }
 
  private:
@@ -677,13 +611,9 @@ class c3x3_16Prop : public OperatorProperty {
 
       Shape<4> _aux_shape = Shape4((param_.num_filter * 15)/ param_.num_group, dshape[1] / param_.num_group,
                                   param_.kernel[0], param_.kernel[1]);
-	  //LOG(INFO) << "------------group " << param_.num_group;
       _aux_shape[0] *= param_.num_group;
-      //LOG(INFO) << "----------------" << in_shape->size();
 
-      //LOG(INFO) << "----------------" << aux_shape->size();
       SHAPE_ASSIGN_CHECK(*in_shape, c3x3_16::kExtra, _aux_shape);
-      //LOG(INFO) << "------------------------------";
 
       if (!param_.no_bias) {
         SHAPE_ASSIGN_CHECK(*in_shape, c3x3_16::kBias, Shape1(param_.num_filter));
@@ -703,7 +633,6 @@ class c3x3_16Prop : public OperatorProperty {
       CHECK_GT(param_.dilate.Size(), 0U) \
           << "incorrect dilate size: " << param_.dilate;
 
-      //LOG(INFO) << "------------------------------";
       Shape<4> oshape;
       oshape[0] = dshape[0];
       oshape[1] = param_.num_filter * 15;
@@ -715,7 +644,6 @@ class c3x3_16Prop : public OperatorProperty {
       // Perform incomplete shape inference. Fill in the missing values in data shape.
       // 1) We can always fill in the batch_size.
       // 2) We can back-calculate the input height/width if the corresponding stride is 1.
-      //LOG(INFO) << "------------------------------";
       oshape = ConvertLayout((*out_shape)[0].get<4>(), param_.layout.value(), kNCHW);
       dshape[0] = oshape[0];
       if (param_.stride[0] == 1) {
@@ -733,10 +661,8 @@ class c3x3_16Prop : public OperatorProperty {
       if (dshape[3] != 0) {
         CHECK_LE(ksize_x, dshape[3] + 2 * param_.pad[1]) << "kernel size exceed input";
       }
-      //LOG(INFO) << "---------------------return infer";
       return true;
     } else {
-      //LOG(FATAL) << "Unknown c3x3_16 type";
       return false;
     }
   }
