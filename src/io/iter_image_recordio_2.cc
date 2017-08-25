@@ -1,5 +1,23 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 /*!
- *  Copyright (c) 2017 by Contributors
  * \file iter_image_recordio_2.cc
  * \brief new version of recordio data iterator
  */
@@ -266,7 +284,7 @@ inline bool ImageRecordIOParser2<DType>::ParseNext(DataBatch *out) {
         auto dtype = prefetch_param_.dtype
           ? prefetch_param_.dtype.value()
           : first_batch.data[i].type_flag_;
-        out->data.at(i) = NDArray(dst_shape, Context::CPU(), false , src_type_flag);
+        out->data.at(i) = NDArray(dst_shape, Context::CPUPinned(0), false, src_type_flag);
         unit_size_[i] = src_shape.Size();
       }
     }
@@ -360,10 +378,10 @@ inline void ImageRecordIOParser2<DType>::ParseChunk(dmlc::InputSplit::Blob * chu
           (rand_uniform(*(prnds_[tid])) * normalize_param_.max_random_illumination * 2
           - normalize_param_.max_random_illumination) * normalize_param_.scale;
       }
+      DType RGBA[4] = {};
       for (int i = 0; i < res.rows; ++i) {
         uchar* im_data = res.ptr<uchar>(i);
         for (int j = 0; j < res.cols; ++j) {
-          DType RGBA[4];
           for (int k = 0; k < n_channels; ++k) {
             RGBA[k] = im_data[swap_indices[k]];
           }
@@ -557,13 +575,28 @@ class ImageRecordIter2 : public IIterator<DataBatch> {
 };
 
 MXNET_REGISTER_IO_ITER(ImageRecordIter)
-.describe(R"code(Iterating on image RecordIO files
+.describe(R"code(Iterates on image RecordIO files
 
-Read images batches from RecordIO files with a rich of data augmentation
-options.
+Reads batches of images from .rec RecordIO files. One can use ``im2rec.py`` tool
+(in tools/) to pack raw image files into RecordIO files. This iterator is less
+flexible to customization but is fast and has lot of language bindings. To
+iterate over raw images directly use ``ImageIter`` instead (in Python).
 
-One can use ``tools/im2rec.py`` to pack individual image files into RecordIO
-files.
+Example::
+
+  data_iter = mx.io.ImageRecordIter(
+    path_imgrec="./sample.rec", # The target record file.
+    data_shape=(3, 227, 227), # Output data shape; 227x227 region will be cropped from the original image.
+    batch_size=4, # Number of items per batch.
+    resize=256 # Resize the shorter edge to 256 before cropping.
+    # You can specify more augmentation options. Use help(mx.io.ImageRecordIter) to see all the options.
+    )
+  # You can now use the data_iter to access batches of images.
+  batch = data_iter.next() # first batch.
+  images = batch.data[0] # This will contain 4 (=batch_size) images each of 3x227x227.
+  # process the images
+  ...
+  data_iter.reset() # To restart the iterator from the beginning.
 
 )code" ADD_FILELINE)
 .add_arguments(ImageRecParserParam::__FIELDS__())

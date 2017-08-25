@@ -118,8 +118,23 @@ Run the following line after all modification explained above.
 Train and test your own models by preparing two files.
 1) A new configuration file, i.e., custom.cfg, corresponding to the file 'default.cfg'.
 The new file should specify the items below the '[arch]' section of the original file. 
-2) A new implementation file, i.e., arch_custom.py, corresponing to the file 'arch_deepspeech.py'.
+2) A new implementation file, i.e., arch_custom.py, corresponding to the file 'arch_deepspeech.py'.
 The new file should implement two functions, prepare_data() and arch(), for building networks described in the new configuration file.
 
 Run the following line after preparing the files.   
 <pre><code>python main.py --configfile custom.cfg --archfile arch_custom</pre></code>
+
+***
+## **Further more**
+You can prepare full LibriSpeech dataset by following the instruction on https://github.com/baidu-research/ba-dls-deepspeech  
+**Change flac_to_wav.sh script of baidu to flac_to_wav.sh in repository to avoid bug**
+```bash
+git clone https://github.com/baidu-research/ba-dls-deepspeech
+cd ba-dls-deepspeech
+./download.sh
+cp -f /path/to/example/flac_to_wav.sh ./
+./flac_to_wav.sh
+python create_desc_json.py /path/to/ba-dls-deepspeech/LibriSpeech/train-clean-100 train_corpus.json
+python create_desc_json.py /path/to/ba-dls-deepspeech/LibriSpeech/dev-clean validation_corpus.json
+python create_desc_json.py /path/to/ba-dls-deepspeech/LibriSpeech/test-clean test_corpus.json
+```

@@ -31,7 +31,9 @@ t/test_executor.t
 t/test_infer_shape.t
 lib/AI/MXNet.pm
 lib/AI/MXNet/Random.pm
+lib/AI/MXNet/CachedOp.pm
 lib/AI/MXNet/Context.pm
+lib/AI/MXNet/Contrib/AutoGrad.pm
 lib/AI/MXNet/Contrib/Symbol.pm
 lib/AI/MXNet/Contrib/NDArray.pm
 lib/AI/MXNet/Profiler.pm

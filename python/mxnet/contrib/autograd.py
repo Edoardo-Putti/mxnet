@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 # coding: utf-8
 """Autograd for NDArray."""
 from __future__ import absolute_import
@@ -7,6 +24,7 @@ import ctypes
 import functools
 from ..base import _LIB, check_call, string_types
 from ..base import mx_uint, NDArrayHandle, c_array
+# pylint: disable= unused-import
 from ..ndarray import NDArray, zeros_like
 from ..symbol import _GRAD_REQ_MAP
 
@@ -27,6 +45,8 @@ def set_is_training(is_train):
     """
     prev = ctypes.c_int()
     check_call(_LIB.MXAutogradSetIsTraining(
+        ctypes.c_int(is_train), ctypes.byref(prev)))
+    check_call(_LIB.MXAutogradSetIsRecording(
         ctypes.c_int(is_train), ctypes.byref(prev)))
     return bool(prev.value)
 
@@ -51,25 +71,29 @@ class TrainingStateScope(object):
             set_is_training(self._prev)
 
 
-def train():
-    """Returns a training TrainingStateScope
+def train_section():
+    """Returns a training scope context to be used in 'with' statement
+    and captures training code.
 
     Example::
-        with autograd.train():
+        with autograd.train_section():
             y = model(x)
             compute_gradient([y])
+        metric.update(...)
+        optim.step(...)
     """
     return TrainingStateScope(True)
 
 
-def test():
-    """Returns a testing TrainingStateScope.
+def test_section():
+    """Returns a testing scope context to be used in 'with' statement
+    and captures testing code.
 
     Example::
-        with autograd.train():
+        with autograd.train_section():
             y = model(x)
             compute_gradient([y])
-            with autograd.test():
+            with autograd.test_section():
                 # testing, IO, gradient updates...
     """
     return TrainingStateScope(False)
@@ -100,24 +124,48 @@ def mark_variables(variables, gradients, grad_reqs='write'):
         c_array(mx_uint, grad_reqs),
         c_array(NDArrayHandle, gradient_handles)))
 
-def compute_gradient(outputs):
+
+def backward(outputs, out_grads=None, retain_graph=False):
     """Compute the gradients of outputs w.r.t variables.
 
     Parameters
     ----------
     outputs: list of NDArray
-
-    Returns
-    -------
-    gradients: list of NDArray
+    out_grads: list of NDArray or None
     """
+    assert isinstance(outputs, (list, tuple)), \
+        "outputs must be a list or tuple of NDArrays"
     output_handles = []
     for arr in outputs:
         output_handles.append(arr.handle)
 
-    check_call(_LIB.MXAutogradComputeGradient(
+    if out_grads is None:
+        check_call(_LIB.MXAutogradBackward(
+            len(output_handles),
+            c_array(NDArrayHandle, output_handles),
+            ctypes.c_void_p(0),
+            ctypes.c_int(retain_graph)))
+        return
+
+    ograd_handles = []
+    for arr in out_grads:
+        if arr is not None:
+            ograd_handles.append(arr.handle)
+        else:
+            ograd_handles.append(NDArrayHandle(0))
+    assert len(ograd_handles) == len(output_handles), \
+        "outputs and out_grads must have the same length"
+
+    check_call(_LIB.MXAutogradBackward(
         len(output_handles),
-        c_array(NDArrayHandle, output_handles)))
+        c_array(NDArrayHandle, output_handles),
+        c_array(NDArrayHandle, ograd_handles),
+        ctypes.c_int(retain_graph)))
+
+
+def compute_gradient(outputs):
+    """Deprecated. Please use backward"""
+    backward(outputs)
 
 
 def grad_and_loss(func, argnum=None):
@@ -146,7 +194,7 @@ def grad_and_loss(func, argnum=None):
             assert isinstance(x, NDArray), "type of autograd input should NDArray."
         grads = [zeros_like(x) for x in variables]
         mark_variables(variables, grads)
-        with train():
+        with train_section():
             outputs = func(*args)
         compute_gradient([outputs] if isinstance(outputs, NDArray) else outputs)
         return grads, outputs

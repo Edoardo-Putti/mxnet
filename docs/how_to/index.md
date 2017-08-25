@@ -11,8 +11,6 @@ and full working examples, visit the [tutorials section](../tutorials/index.md).
 
 * [How do I work with variable-length input in MXNet (bucketing)?](http://mxnet.io/how_to/bucketing.html)
 
-* [How do I create new operators with MXNet?](new_op.md)
-
 * [How do I visualize neural networks as computation graphs?](http://mxnet.io/how_to/visualize_graph.html)
 
 
@@ -30,10 +28,35 @@ and full working examples, visit the [tutorials section](../tutorials/index.md).
 ## Deployment Environments
 * [Can I run MXNet on smart or mobile devices?](http://mxnet.io/how_to/smart_device.html)
 
-* [How do I set up MXNet on the AWS Cloud using Amazon EC2 and Amazon S3?](http://mxnet.io/how_to/cloud.html)
+* [How to use data from S3 for training?](s3_integration.md)
 
-* [How do I work with MXNet within a Matlab environment?](https://github.com/dmlc/mxnet/tree/master/matlab)
+* [How to setup MXNet on AWS?](http://docs.aws.amazon.com/mxnet/latest/dg/mxnet-on-ec2-instance.html)
 
-* [Can I run MXNet in a browser using JavaScript?](https://github.com/dmlc/mxnet.js/)
+* [How to do distributed training using MXNet on AWS?](http://docs.aws.amazon.com/mxnet/latest/dg/mxnet-on-ec2-cluster.html)
 
 * [How do I run MXNet on a Raspberry Pi for computer vision?](http://mxnet.io/tutorials/embedded/wine_detector.html)
+
+* [How do I run Keras 1.2.2 with mxnet backend?](https://github.com/dmlc/keras/wiki/Installation)
+
+* [How to convert MXNet models to Apple CoreML format?](https://github.com/apache/incubator-mxnet/tree/master/tools/coreml)
+
+## Extend and Contribute to MXNet
+
+* [How do I join the MXNet development discussion?](http://mxnet.io/community/mxnet_channels.html)
+
+* [How do I contribute a patch to MXNet?](http://mxnet.io/community/contribute.html)
+
+* [How do I create new operators in MXNet?](http://mxnet.io/how_to/new_op.html)
+
+* [How do I set MXNet's environmental variables?](http://mxnet.io/how_to/env_var.html)
+
+* [How do I use MXNet as a front end for Torch?](http://mxnet.io/how_to/torch.html)
+
+## Questions about Using MXNet
+If you are not sure of how to use MXNet for something, or have questions about applying it to a particular kind of problem, please post a question at [Stackoverflow](http://stackoverflow.com/) with tag - ```mxnet```. You can view StackOverflow questions about mxnet [here](http://stackoverflow.com/questions/tagged/mxnet).
+
+## Issue Tracker
+We track bugs and new feature requests in the MXNet Github repo in the issues folder: [mxnet/issues](https://github.com/dmlc/mxnet/issues).
+
+## Roadmap
+MXNet is evolving fast. To see what's next and what we are working on internally, go to the [MXNet Roadmap](https://github.com/dmlc/mxnet/labels/Roadmap).

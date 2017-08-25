@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>ml.dmlc.mxnet</groupId>
   <artifactId>mxnet-parent_2.11</artifactId>
-  <version>0.1.2-SNAPSHOT</version>
+  <version>${project.version}</version>
   <name>MXNet Scala Package - Parent</name>
   <url>https://github.com/dmlc/mxnet/tree/master/scala-package</url>
   <description>MXNet Scala Package</description>
@@ -48,6 +48,7 @@
   </developers>
 
   <properties>
+    <project.version>0.11.1-SNAPSHOT</project.version>
     <scala.version>2.11.8</scala.version>
     <scala.binary.version>2.11</scala.binary.version>
   </properties>
@@ -281,6 +282,9 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
         <version>2.9.1</version>
+        <configuration>
+          <excludePackageNames>org.kohsuke.*</excludePackageNames>
+        </configuration>
         <executions>
           <execution>
             <id>attach-javadocs</id>

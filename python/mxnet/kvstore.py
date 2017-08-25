@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 # coding: utf-8
 """ Key value store interface of MXNet for parameter synchronization."""
 from __future__ import absolute_import
@@ -5,43 +22,40 @@ from __future__ import absolute_import
 import ctypes
 import pickle
 from .ndarray import NDArray
+from .ndarray import _ndarray_cls
 from .base import _LIB
 from .base import check_call, c_array, c_str, string_types, mx_uint, py_str
 from .base import NDArrayHandle, KVStoreHandle
 from . import optimizer as opt
 
 def _ctype_key_value(keys, vals):
-    """
-    Returns ctype arrays for the key-value args. For internal use.
-    """
-    if isinstance(keys, int):
-        if isinstance(vals, NDArray):
-            return (c_array(ctypes.c_int, [keys]),
-                    c_array(NDArrayHandle, [vals.handle]))
-        else:
-            for value in vals:
-                assert(isinstance(value, NDArray))
-            return (c_array(ctypes.c_int, [keys] * len(vals)),
-                    c_array(NDArrayHandle, [value.handle for value in vals]))
-    else:
+    if isinstance(keys, (tuple, list)):
         assert(len(keys) == len(vals))
-        for k in keys:
-            assert(isinstance(k, int))
         c_keys = []
         c_vals = []
         for key, val in zip(keys, vals):
             c_key_i, c_val_i = _ctype_key_value(key, val)
             c_keys += c_key_i
             c_vals += c_val_i
-        return (c_array(ctypes.c_int, c_keys), c_array(NDArrayHandle, c_vals))
-
+        return (c_array(ctypes.c_char_p, c_keys), c_array(NDArrayHandle, c_vals))
+    names = []
+    keys = str(keys)
+    if isinstance(vals, NDArray):
+        names.append(c_str(keys))
+        return (c_array(ctypes.c_char_p, names),
+                c_array(NDArrayHandle, [vals.handle]))
+    else:
+        for value in vals:
+            assert(isinstance(value, NDArray))
+        return (c_array(ctypes.c_char_p, [c_str(keys)] * len(vals)),
+                c_array(NDArrayHandle, [value.handle for value in vals]))
 
 def _updater_wrapper(updater):
     """A wrapper for the user-defined handle."""
     def updater_handle(key, lhs_handle, rhs_handle, _):
         """ ctypes function """
-        lhs = NDArray(NDArrayHandle(lhs_handle))
-        rhs = NDArray(NDArrayHandle(rhs_handle))
+        lhs = _ndarray_cls(NDArrayHandle(lhs_handle))
+        rhs = _ndarray_cls(NDArrayHandle(rhs_handle))
         updater(key, lhs, rhs)
     return updater_handle
 
@@ -74,7 +88,7 @@ class KVStore(object):
 
         Parameters
         ----------
-        key : int or sequence of int
+        key : str or sequence of str
             The keys.
         value : NDArray or sequence of NDArray
             Values corresponding to the keys.
@@ -84,20 +98,19 @@ class KVStore(object):
         >>> # init a single key-value pair
         >>> shape = (2,3)
         >>> kv = mx.kv.create('local')
-        >>> kv.init(3, mx.nd.ones(shape)*2)
+        >>> kv.init('3', mx.nd.ones(shape)*2)
         >>> a = mx.nd.zeros(shape)
-        >>> kv.pull(3, out=a)
+        >>> kv.pull('3', out=a)
         >>> print a.asnumpy()
         [[ 2.  2.  2.]
         [ 2.  2.  2.]]
 
         >>> # init a list of key-value pairs
-        >>> keys = [5, 7, 9]
+        >>> keys = ['5', '7', '9']
         >>> kv.init(keys, [mx.nd.ones(shape)]*len(keys))
         """
         ckeys, cvals = _ctype_key_value(key, value)
-        check_call(_LIB.MXKVStoreInit(
-            self.handle, mx_uint(len(ckeys)), ckeys, cvals))
+        check_call(_LIB.MXKVStoreInitEx(self.handle, mx_uint(len(ckeys)), ckeys, cvals))
 
     def push(self, key, value, priority=0):
         """ Pushes a single or a sequence of key-value pairs into the store.
@@ -110,7 +123,7 @@ class KVStore(object):
 
         Parameters
         ----------
-        key : int or list of int
+        key : str or list of str
             Keys.
 
         value : NDArray or list of NDArray or list of list of NDArray
@@ -124,8 +137,8 @@ class KVStore(object):
         Examples
         --------
         >>> # push a single key-value pair
-        >>> kv.push(3, mx.nd.ones(shape)*8)
-        >>> kv.pull(3, out=a) # pull out the value
+        >>> kv.push('3', mx.nd.ones(shape)*8)
+        >>> kv.pull('3', out=a) # pull out the value
         >>> print a.asnumpy()
         [[ 8.  8.  8.]
         [ 8.  8.  8.]]
@@ -133,8 +146,8 @@ class KVStore(object):
         >>> # aggregate the value and the push
         >>> gpus = [mx.gpu(i) for i in range(4)]
         >>> b = [mx.nd.ones(shape, gpu) for gpu in gpus]
-        >>> kv.push(3, b)
-        >>> kv.pull(3, out=a)
+        >>> kv.push('3', b)
+        >>> kv.pull('3', out=a)
         >>> print a.asnumpy()
         [[ 4.  4.  4.]
         [ 4.  4.  4.]]
@@ -157,9 +170,10 @@ class KVStore(object):
         [ 4.  4.  4.]]
         """
         ckeys, cvals = _ctype_key_value(key, value)
-        check_call(_LIB.MXKVStorePush(
+        check_call(_LIB.MXKVStorePushEx(
             self.handle, mx_uint(len(ckeys)), ckeys, cvals,
             ctypes.c_int(priority)))
+
 
     def pull(self, key, out=None, priority=0):
         """ Pulls a single value or a sequence of values from the store.
@@ -172,6 +186,8 @@ class KVStore(object):
         for the same input key(s) are finished.
 
         The returned values are gauranteed to be the latest values in the store.
+
+        For row_sparse values, please use `row_sparse_pull` instead.
 
         Parameters
         ----------
@@ -190,21 +206,21 @@ class KVStore(object):
         --------
         >>> # pull a single key-value pair
         >>> a = mx.nd.zeros(shape)
-        >>> kv.pull(3, out=a)
+        >>> kv.pull('3', out=a)
         >>> print a.asnumpy()
         [[ 2.  2.  2.]
         [ 2.  2.  2.]]
 
         >>> # pull into multiple devices
         >>> b = [mx.nd.ones(shape, gpu) for gpu in gpus]
-        >>> kv.pull(3, out=b)
+        >>> kv.pull('3', out=b)
         >>> print b[1].asnumpy()
         [[ 2.  2.  2.]
         [ 2.  2.  2.]]
 
         >>> # pull a list of key-value pairs.
         >>> # On single device
-        >>> keys = [5, 7, 9]
+        >>> keys = ['5', '7', '9']
         >>> b = [mx.nd.zeros(shape)]*len(keys)
         >>> kv.pull(keys, out=b)
         >>> print b[1].asnumpy()
@@ -219,21 +235,99 @@ class KVStore(object):
         """
         assert(out is not None)
         ckeys, cvals = _ctype_key_value(key, out)
-        check_call(_LIB.MXKVStorePull(
+        check_call(_LIB.MXKVStorePullEx(
             self.handle, mx_uint(len(ckeys)), ckeys, cvals,
             ctypes.c_int(priority)))
 
-    def set_optimizer(self, optimizer):
-        """ Registers an optimizer with the store.
+    def row_sparse_pull(self, key, out=None, priority=0, row_ids=None):
+        """ Pulls a single row_sparse value or a sequence of row_sparse values from the store
+         with specified row_ids.
 
-        When there are multiple machines, this operation (invoked from a worker node)
-        will pack the optimizer and send it to all servers. It returns after
-        this action is done.
+        `row_sparse_pull` is executed asynchronously after all previous
+        `push`/`pull`/`row_sparse_pull` calls for the same input key(s) are finished.
+
+        The returned values are guaranteed to be the latest values in the store.
+
+        Parameters
+        ----------
+        key : str or list of str
+            Keys.
+
+        out: NDArray or list of NDArray or list of list of NDArray
+            Values corresponding to the keys. The stype is expected to be row_sparse
+
+        priority : int, optional
+            The priority of the pull operation.
+            Higher priority pull operations are likely to be executed before
+            other pull actions.
+
+        row_ids : NDArray or list of NDArray
+            The row_ids for which to pull for each value. Each row_id is an 1D-NDArray \
+            whose values don't have to be unique nor sorted.
+
+        Examples
+        --------
+        >>> shape = (3, 3)
+        >>> kv.init('3', mx.nd.ones(shape).tostype('row_sparse'))
+        >>> a = mx.nd.zeros(shape, stype='row_sparse')
+        >>> row_ids = mx.nd.array([0, 2], dtype='int64')
+        >>> kv.row_sparse_pull('3', out=a, row_ids=row_ids)
+        >>> print a.asnumpy()
+        [[ 1.  1.  1.]
+        [ 0.  0.  0.]
+        [ 1.  1.  1.]]
+        >>> duplicate_row_ids = mx.nd.array([2, 2], dtype='int64')
+        >>> kv.row_sparse_pull('3', out=a, row_ids=duplicate_row_ids)
+        >>> print a.asnumpy()
+        [[ 0.  0.  0.]
+        [ 0.  0.  0.]
+        [ 1.  1.  1.]]
+        >>> unsorted_row_ids = mx.nd.array([1, 0], dtype='int64')
+        >>> kv.row_sparse_pull('3', out=a, row_ids=unsorted_row_ids)
+        >>> print a.asnumpy()
+        [[ 1.  1.  1.]
+        [ 1.  1.  1.]
+        [ 0.  0.  0.]]
+        """
+        assert(out is not None)
+        assert(row_ids is not None)
+        ckeys, cvals = _ctype_key_value(key, out)
+        _, crow_ids = _ctype_key_value(key, row_ids)
+        assert(len(crow_ids) == len(cvals)), "number of row_ids doesn't match number of values"
+
+        check_call(_LIB.MXKVStorePullRowSparse(
+            self.handle, mx_uint(len(ckeys)), ckeys, cvals, crow_ids, ctypes.c_int(priority)))
+
+
+    def set_optimizer(self, optimizer):
+        """ Registers an optimizer with the kvstore.
+
+        When using a single machine, this function updates the local optimizer.
+        If using multiple machines and this operation is invoked from a worker node,
+        it will serialized the optimizer with pickle and send it to all servers.
+        The function returns after all servers have been updated.
 
         Parameters
         ----------
         optimizer : Optimizer
-            the optimizer.
+            The new optimizer for the store
+
+        Examples
+        --------
+
+        >>> kv = mx.kv.create()
+        >>> shape = (2, 2)
+        >>> weight = mx.nd.zeros(shape)
+        >>> kv.init(3, weight)
+        >>> # set the optimizer for kvstore as the default SGD optimizer
+        >>> kv.set_optimizer(mx.optimizer.SGD())
+        >>> grad = mx.nd.ones(shape)
+        >>> kv.push(3, grad)
+        >>> kv.pull(3, out = weight)
+        >>> # weight is updated via gradient descent
+        >>> weight.asnumpy()
+        array([[-0.01, -0.01],
+               [-0.01, -0.01]], dtype=float32)
         """
         is_worker = ctypes.c_int()
         check_call(_LIB.MXKVStoreIsWorkerNode(ctypes.byref(is_worker)))
@@ -290,19 +384,20 @@ class KVStore(object):
         return size.value
 
     def save_optimizer_states(self, fname):
-        """Saves optimizer (updater) state to file.
+        """Saves the optimizer (updater) state to a file. This is often used when checkpointing
+        the model during training.
 
         Parameters
         ----------
         fname : str
-            Path to output states file.
+            Path to the output states file.
         """
         assert self._updater is not None, "Cannot save states for distributed training"
         with open(fname, 'wb') as fout:
             fout.write(self._updater.get_states())
 
     def load_optimizer_states(self, fname):
-        """Loads optimizer (updater) state from file.
+        """Loads the optimizer (updater) state from the file.
 
         Parameters
         ----------
@@ -329,13 +424,13 @@ class KVStore(object):
         ...     print "update on key: %d" % key
         ...     stored += input * 2
         >>> kv._set_updater(update)
-        >>> kv.pull(3, out=a)
+        >>> kv.pull('3', out=a)
         >>> print a.asnumpy()
         [[ 4.  4.  4.]
         [ 4.  4.  4.]]
-        >>> kv.push(3, mx.nd.ones(shape))
+        >>> kv.push('3', mx.nd.ones(shape))
         update on key: 3
-        >>> kv.pull(3, out=a)
+        >>> kv.pull('3', out=a)
         >>> print a.asnumpy()
         [[ 6.  6.  6.]
         [ 6.  6.  6.]]
@@ -379,12 +474,33 @@ class KVStore(object):
 def create(name='local'):
     """Creates a new KVStore.
 
+    For single machine training, there are two commonly used types:
+
+    ``local``: Copies all gradients to CPU memory and updates weights there.
+
+    ``device``: Aggregates gradients and updates weights on GPUs. With this setting,
+    the KVStore also attempts to use GPU peer-to-peer communication,
+    potentially accelerating the communication.
+
+    For distributed training, KVStore also supports a number of types:
+
+    ``dist_sync``: Behaves similarly to ``local`` but with one major difference.
+    With ``dist_sync``, batch-size now means the batch size used on each machine.
+    So if there are ``n`` machines and we use batch size ``b``,
+    then ``dist_sync`` behaves like ``local`` with batch size ``n * b``.
+
+    ``dist_device_sync``: Identical to ``dist_sync`` with the difference similar
+    to ``device`` vs ``local``.
+
+    ``dist_async``: Performs asynchronous updates.
+    The weights are updated whenever gradients are received from any machine.
+    No two updates happen on the same weight at the same time. However, the order is not
+    guaranteed.
+
     Parameters
     ----------
-    name : {'local'}
+    name : {'local', 'device', 'dist_sync', 'dist_device_sync', 'dist_async'}
         The type of KVStore.
-        - local works for multiple devices on a single machine (single process).
-        - dist works for multiple machines (multiple processes).
     Returns
     -------
     kv : KVStore

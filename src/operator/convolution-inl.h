@@ -1,5 +1,23 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 /*!
- * Copyright (c) 2017 by Contributors
  * \file convolution-inl.h
  * \brief
  * \ref: https://github.com/Yangqing/caffe/wiki/Convolution-in-Caffe:-a-memo
@@ -22,6 +40,7 @@
 #include <utility>
 #include "./operator_common.h"
 #include "./nn/im2col.h"
+#include "./linalg.h"
 
 
 namespace mxnet {
@@ -59,7 +78,7 @@ struct ConvolutionParam : public dmlc::Parameter<ConvolutionParam> {
     DMLC_DECLARE_FIELD(num_group).set_default(1)
     .describe("Number of group partitions.");
     DMLC_DECLARE_FIELD(workspace).set_default(1024).set_range(0, 8192)
-    .describe("Maximum temperal workspace allowed for convolution (MB).");
+    .describe("Maximum temporary workspace allowed for convolution (MB).");
     DMLC_DECLARE_FIELD(no_bias).set_default(false)
     .describe("Whether to disable bias parameter.");
     DMLC_DECLARE_FIELD(cudnn_tune)
@@ -142,7 +161,9 @@ class ConvolutionOp : public Operator {
              col_buffer.dptr<DType>());
       Tensor<xpu, 3, DType> output_3d = output_4d[n];
       for (index_t g = 0; g < group_; ++g) {
-        ASSIGN_DISPATCH(output_3d[g], req[conv::kOut], dot(weight_3d[g], col_buffer_3d[g]));
+        // Legacy approach shown here for comparison:
+        //   Assign(output_3d[g], req[conv::kOut], dot(weight_3d[g], col_buffer_3d[g]));
+        linalg_gemm(weight_3d[g], col_buffer_3d[g], output_3d[g], false, false, s, req[conv::kOut]);
       }
     }
     if (bias_term_) {
@@ -201,7 +222,9 @@ class ConvolutionOp : public Operator {
       Tensor<xpu, 3, DType> out_grad_3d = out_grad_4d[n];
       // gradient w.r.t. input data
       for (index_t g = 0; g < group_; ++g) {
-        col_buffer_3d[g] = dot(weight_3d[g].T(), out_grad_3d[g]);
+        // Legacy approach shown here for comparison:
+        //   col_buffer_3d[g] = dot(weight_3d[g].T(), out_grad_3d[g]);
+        linalg_gemm(weight_3d[g], out_grad_3d[g], col_buffer_3d[g], true, false, s);
       }
       col2im(s, col_buffer.dptr<DType>(), in_grad[conv::kData].shape_, col_buffer.shape_,
              param_.kernel, param_.pad, param_.stride, param_.dilate,
@@ -212,12 +235,10 @@ class ConvolutionOp : public Operator {
              col_buffer.shape_, param_.kernel, param_.pad, param_.stride, param_.dilate,
              col_buffer.dptr<DType>());
       for (index_t g = 0; g < group_; ++g) {
-        if (0 == n) {
-          ASSIGN_DISPATCH(dweight_3d[g], req[conv::kWeight],
-                          dot(out_grad_3d[g], col_buffer_3d[g].T()));
-        } else {
-          dweight_3d[g] += dot(out_grad_3d[g], col_buffer_3d[g].T());
-        }
+        auto request = (n == 0) ? req[conv::kWeight] : kAddTo;
+        // Legacy approach shown here for comparison:
+        //   Assign(dweight_3d[g], request, dot(out_grad_3d[g], col_buffer_3d[g].T()));
+        linalg_gemm(out_grad_3d[g], col_buffer_3d[g], dweight_3d[g], false, true, s, request);
       }
     }
 
@@ -368,13 +389,26 @@ class ConvolutionProp : public OperatorProperty {
           << "incorrect stride size: " << param_.stride;
       CHECK_GT(param_.dilate.Size(), 0U) \
           << "incorrect dilate size: " << param_.dilate;
-      CHECK(dilated_ksize_x <= AddPad(dshape[2], param_.pad[0]))
-          << "kernel size exceed input";
       Shape<3> oshape;
       oshape[0] = dshape[0];
       oshape[1] = param_.num_filter;
-      oshape[2] = (AddPad(dshape[2], param_.pad[0]) - dilated_ksize_x) / param_.stride[0] + 1;
+      oshape[2] = dshape[2] ?
+          (AddPad(dshape[2], param_.pad[0]) - dilated_ksize_x) / param_.stride[0] + 1 : 0;
       SHAPE_ASSIGN_CHECK(*out_shape, 0, ConvertLayout(oshape, kNCW, param_.layout.value()));
+      // Perform incomplete shape inference. Fill in the missing values in data shape.
+      // 1) We can always fill in the batch_size.
+      // 2) We can back-calculate the input height/width if the corresponding stride is 1.
+      oshape = ConvertLayout((*out_shape)[0].get<3>(), param_.layout.value(), kNCW);
+      dshape[0] = oshape[0];
+      if (oshape[2] && param_.stride[0] == 1) {
+        dshape[2] = oshape[2] + dilated_ksize_x - 1 - 2 * param_.pad[0];
+      }
+      SHAPE_ASSIGN_CHECK(*in_shape, conv::kData,
+                          ConvertLayout(dshape, kNCW, param_.layout.value()));
+      // Check whether the kernel sizes are valid
+      if (dshape[2] != 0) {
+        CHECK_LE(dilated_ksize_x, AddPad(dshape[2], param_.pad[0])) << "kernel size exceed input";
+      }
       return true;
     } else if (param_.kernel.ndim() == 2) {
       // 2d conv
@@ -406,18 +440,20 @@ class ConvolutionProp : public OperatorProperty {
       Shape<4> oshape;
       oshape[0] = dshape[0];
       oshape[1] = param_.num_filter;
-      oshape[2] = (AddPad(dshape[2], param_.pad[0]) - dilated_ksize_y) / param_.stride[0] + 1;
-      oshape[3] = (AddPad(dshape[3], param_.pad[1]) - dilated_ksize_x) / param_.stride[1] + 1;
+      oshape[2] = dshape[2] ?
+        (AddPad(dshape[2], param_.pad[0]) - dilated_ksize_y) / param_.stride[0] + 1 : 0;
+      oshape[3] = dshape[3] ?
+        (AddPad(dshape[3], param_.pad[1]) - dilated_ksize_x) / param_.stride[1] + 1 : 0;
       SHAPE_ASSIGN_CHECK(*out_shape, 0, ConvertLayout(oshape, kNCHW, param_.layout.value()));
       // Perform incomplete shape inference. Fill in the missing values in data shape.
       // 1) We can always fill in the batch_size.
       // 2) We can back-calculate the input height/width if the corresponding stride is 1.
       oshape = ConvertLayout((*out_shape)[0].get<4>(), param_.layout.value(), kNCHW);
       dshape[0] = oshape[0];
-      if (param_.stride[0] == 1) {
+      if (oshape[2] && param_.stride[0] == 1) {
         dshape[2] = oshape[2] + dilated_ksize_y - 1 - 2 * param_.pad[0];
       }
-      if (param_.stride[1] == 1) {
+      if (oshape[3] && param_.stride[1] == 1) {
         dshape[3] = oshape[3] + dilated_ksize_x - 1 - 2 * param_.pad[1];
       }
       SHAPE_ASSIGN_CHECK(*in_shape, conv::kData,
@@ -464,22 +500,25 @@ class ConvolutionProp : public OperatorProperty {
       Shape<5> oshape;
       oshape[0] = dshape[0];
       oshape[1] = param_.num_filter;
-      oshape[2] = (AddPad(dshape[2], param_.pad[0]) - dilated_ksize_d) / param_.stride[0] + 1;
-      oshape[3] = (AddPad(dshape[3], param_.pad[1]) - dilated_ksize_y) / param_.stride[1] + 1;
-      oshape[4] = (AddPad(dshape[4], param_.pad[2]) - dilated_ksize_x) / param_.stride[2] + 1;
+      oshape[2] = dshape[2] ?
+        (AddPad(dshape[2], param_.pad[0]) - dilated_ksize_d) / param_.stride[0] + 1 : 0;
+      oshape[3] = dshape[3] ?
+        (AddPad(dshape[3], param_.pad[1]) - dilated_ksize_y) / param_.stride[1] + 1 : 0;
+      oshape[4] = dshape[4] ?
+        (AddPad(dshape[4], param_.pad[2]) - dilated_ksize_x) / param_.stride[2] + 1 : 0;
       SHAPE_ASSIGN_CHECK(*out_shape, 0, ConvertLayout(oshape, kNCDHW, param_.layout.value()));
       // Perform incomplete shape inference. Fill in the missing values in data shape.
       // 1) We can always fill in the batch_size.
       // 2) We can back-calculate the input depth/height/width if the corresponding stride is 1.
       oshape = ConvertLayout((*out_shape)[0].get<5>(), param_.layout.value(), kNCDHW);
       dshape[0] = oshape[0];
-      if (param_.stride[0] == 1) {
+      if (oshape[2] && param_.stride[0] == 1) {
         dshape[2] = oshape[2] + dilated_ksize_d - 1 - 2 * param_.pad[0];
       }
-      if (param_.stride[1] == 1) {
+      if (oshape[3] && param_.stride[1] == 1) {
         dshape[3] = oshape[3] + dilated_ksize_y - 1 - 2 * param_.pad[1];
       }
-      if (param_.stride[2] == 1) {
+      if (oshape[4] && param_.stride[2] == 1) {
         dshape[4] = oshape[4] + dilated_ksize_x - 1 - 2 * param_.pad[2];
       }
       SHAPE_ASSIGN_CHECK(*in_shape, conv::kData,

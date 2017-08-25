@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 # coding: utf-8
 """Context management API of mxnet."""
 from __future__ import absolute_import
@@ -73,16 +90,17 @@ class Context(object):
         """
         return Context.devtype2str[self.device_typeid]
 
+    def __hash__(self):
+        """Compute hash value of context for dictionary lookup"""
+        return hash((self.device_typeid, self.device_id))
+
     def __eq__(self, other):
         """Compares two contexts. Two contexts are equal if they
         have the same device type and device id.
         """
-        if not isinstance(other, Context):
-            return False
-        if self.device_typeid == other.device_typeid and \
-                        self.device_id == other.device_id:
-            return True
-        return False
+        return isinstance(other, Context) and \
+            self.device_typeid == other.device_typeid and \
+            self.device_id == other.device_id
 
     def __str__(self):
         return '%s(%d)' % (self.device_type, self.device_id)
