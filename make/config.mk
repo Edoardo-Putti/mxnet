@@ -30,8 +30,11 @@ DEV = 0
 # whether compile with debug
 DEBUG = 0
 
-# whether compiler with profiler
+# whether compile with profiler
 USE_PROFILER =
+
+# whether to turn on signal handler (e.g. segfault logger)
+USE_SIGNAL_HANDLER =
 
 # the additional link flags you want to add
 # flag compiler with centos7+ -L/usr/lib64/atlas
